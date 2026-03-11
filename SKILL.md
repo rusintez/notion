@@ -135,10 +135,37 @@ notion sync-reset myworkspace        # Reset (next sync = full)
 | pages | Pages with properties and title |
 | users | Workspace members |
 
+## Backup (Browser-based, no API token)
+
+For workspaces without integration access, backup via Chrome CDP (uses `pwc`).
+
+**Prerequisite:** `pwc launch` (Chrome with `--remote-debugging-port=9222`)
+
+```bash
+notion backup spaces                 # List workspaces from browser session
+notion backup                        # Backup all pages (default workspace)
+notion backup -s 1                   # Backup specific workspace by index
+notion backup -p 9223                # Different CDP port
+```
+
+### Backup Output
+
+```
+~/.local/share/notion/{workspace}/backup/{date}/
+├── Page Title.md                    # Markdown content
+├── Another Page.md
+├── .raw/{page-id}.json              # Raw Notion block data
+└── latest -> {date}/                # Symlink
+```
+
+Navigates to each page visibly in Chrome, extracts blocks via Notion internal API, converts to markdown.
+
 ## Notes
 
 - Config: `~/.config/notion-cli/config.json`
 - Sync data: `~/.local/share/notion/`
+- Backup data: `~/.local/share/notion/{workspace}/backup/`
 - Page content renders as markdown (headings, lists, todos, code, quotes, etc.)
 - Database IDs: with or without dashes
-- Share pages with your integration in Notion for access
+- Share pages with your integration in Notion for API access
+- Backup requires Chrome with CDP (`pwc launch`), no integration needed

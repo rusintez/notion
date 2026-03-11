@@ -135,6 +135,36 @@ notion sync-status myworkspace  # Status for specific workspace
 notion sync-reset myworkspace   # Reset state (next sync = full)
 ```
 
+## Backup (Browser-based, no API token needed)
+
+For workspaces where you can't create an integration (e.g. work Notion with admin restrictions), use browser-based backup. This connects to your running Chrome via CDP and navigates page by page.
+
+**Prerequisite:** Chrome running with remote debugging:
+```bash
+pwc launch    # or start Chrome with --remote-debugging-port=9222
+```
+
+```bash
+# List available workspaces (picks up your logged-in session)
+notion backup spaces
+
+# Backup all pages as markdown (default workspace)
+notion backup
+
+# Backup a specific workspace (by index from `backup spaces`)
+notion backup -s 1
+
+# Use a different CDP port
+notion backup -p 9223
+```
+
+Data is saved to `~/.local/share/notion/{workspace}/backup/{date}/`:
+- `{page-title}.md` — rendered markdown
+- `.raw/{page-id}.json` — raw Notion block data
+- `latest` symlink → most recent backup
+
+The browser visibly navigates to each page during backup so you can watch progress.
+
 ## Config Location
 
 `~/.config/notion-cli/config.json`

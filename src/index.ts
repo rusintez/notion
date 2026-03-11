@@ -26,6 +26,7 @@ import {
   COLLECTIONS,
   type Collection,
 } from "./sync.js";
+import { backup, listSpacesFromBrowser } from "./backup.js";
 
 const program = new Command()
   .name("notion")
@@ -758,6 +759,46 @@ program
     resetSyncState(workspaceName);
     console.log(`Sync state reset for "${workspaceName}".`);
     console.log("Next sync will fetch all data from scratch.");
+  });
+
+// ============================================================================
+// BACKUP COMMANDS (browser-based, no API token needed)
+// ============================================================================
+const backupCmd = program
+  .command("backup")
+  .description("backup Notion via browser (Chrome CDP, no API token needed)")
+  .option("-p, --port <port>", "Chrome CDP port", "9222")
+  .option("-s, --space <index>", "workspace index (0-based)", "0")
+  .action(async (opts) => {
+    try {
+      await backup({
+        port: parseInt(opts.port, 10),
+        spaceIndex: parseInt(opts.space, 10),
+      });
+    } catch (err) {
+      printError(err);
+      process.exit(1);
+    }
+  });
+
+backupCmd
+  .command("spaces")
+  .description("list available Notion workspaces via browser")
+  .option("-p, --port <port>", "Chrome CDP port", "9222")
+  .action(async (opts) => {
+    try {
+      const spaces = await listSpacesFromBrowser(parseInt(opts.port, 10));
+      if (spaces.length === 0) {
+        console.log("No workspaces found — are you logged in to Notion in Chrome?");
+        return;
+      }
+      for (let i = 0; i < spaces.length; i++) {
+        console.log(`  [${i}] ${spaces[i].name}`);
+      }
+    } catch (err) {
+      printError(err);
+      process.exit(1);
+    }
   });
 
 program.parse();
