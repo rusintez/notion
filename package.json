@@ -1,0 +1,33 @@
+{
+  "name": "@rusintez/notion",
+  "version": "1.0.0",
+  "description": "Simple CLI wrapper for Notion API - supports multiple workspaces",
+  "type": "module",
+  "bin": {
+    "notion": "./bin/notion.js"
+  },
+  "files": [
+    "src",
+    "bin"
+  ],
+  "scripts": {
+    "test": "tsx src/index.ts"
+  },
+  "keywords": [
+    "notion",
+    "cli",
+    "api"
+  ],
+  "author": "Vladimir Popov <rusintez@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@commander-js/extra-typings": "^14.0.0",
+    "@notionhq/client": "^5.12.0",
+    "commander": "^14.0.3",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^5.9.3"
+  }
+}
