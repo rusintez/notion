@@ -18,6 +18,9 @@ interface Block {
   format?: Record<string, unknown>;
   parent_id: string;
   parent_table?: string;
+  space_id?: string;
+  collection_id?: string;
+  view_ids?: string[];
   created_time?: number;
   last_edited_time?: number;
   created_by_id?: string;
@@ -170,7 +173,45 @@ async function getSpaces(page: Page): Promise<Space[]> {
   return spaces;
 }
 
-async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
+const PAGE_TYPES = new Set(["page", "collection_view_page", "collection_view"]);
+const CONTAINER_TYPES = new Set([
+  "page", "collection_view_page", "collection_view",
+  "column_list", "column", "toggle", "callout", "quote",
+  "synced_block", "transclusion_container", "transclusion_reference",
+  "table_of_contents", "template",
+]);
+
+async function syncRecords(
+  page: Page,
+  table: string,
+  ids: string[],
+): Promise<Record<string, { value?: Block }>> {
+  const result = (await notionApi(page, "syncRecordValues", {
+    requests: ids.map((id) => ({ table, id, version: -1 })),
+  })) as { recordMap?: Record<string, Record<string, { value?: Block }>> };
+  return result.recordMap?.[table] ?? {};
+}
+
+async function getSpaceRootPages(page: Page, spaceId: string): Promise<string[]> {
+  const records = await syncRecords(page, "space" as string, [spaceId]);
+  const space = (records as Record<string, { value?: { pages?: string[] } }>)[spaceId]?.value;
+  return space?.pages ?? [];
+}
+
+async function queryCollectionRows(page: Page, collectionId: string, viewId: string): Promise<string[]> {
+  try {
+    const result = (await notionApi(page, "queryCollection", {
+      collection: { id: collectionId },
+      collectionView: { id: viewId },
+      loader: { type: "table", limit: 10000, searchQuery: "", loadContentCover: false },
+    })) as { result?: { blockIds?: string[]; reducerResults?: { collection_group_results?: { blockIds?: string[] } } } };
+    return result.result?.blockIds ?? result.result?.reducerResults?.collection_group_results?.blockIds ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function searchPages(page: Page, spaceId: string): Promise<PageInfo[]> {
   const pages: PageInfo[] = [];
   let cursor: unknown = undefined;
   let hasMore = true;
@@ -226,6 +267,83 @@ async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
   }
 
   return pages;
+}
+
+async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
+  const discovered = new Map<string, PageInfo>();
+  const visited = new Set<string>();
+  const queue: string[] = [];
+
+  // Seed 1: space root pages
+  console.log("  Fetching space root pages...");
+  const rootPages = await getSpaceRootPages(page, spaceId);
+  queue.push(...rootPages);
+  console.log(`  ${rootPages.length} root pages`);
+
+  // Seed 2: search results (catches shared/favorited pages not in tree)
+  console.log("  Running search...");
+  const fromSearch = await searchPages(page, spaceId);
+  for (const p of fromSearch) {
+    if (!visited.has(p.id)) {
+      discovered.set(p.id, p);
+      queue.push(p.id);
+    }
+  }
+  console.log(`  Search returned ${fromSearch.length} pages`);
+
+  // BFS: walk the page tree via lightweight syncRecordValues
+  console.log("  Walking page tree...");
+  while (queue.length > 0) {
+    const batch: string[] = [];
+    while (batch.length < 50 && queue.length > 0) {
+      const id = queue.shift()!;
+      if (!visited.has(id)) {
+        visited.add(id);
+        batch.push(id);
+      }
+    }
+    if (batch.length === 0) continue;
+
+    const blocks = await syncRecords(page, "block", batch);
+
+    for (const [id, rec] of Object.entries(blocks)) {
+      const block = rec.value;
+      if (!block || block.alive === false) continue;
+
+      if (PAGE_TYPES.has(block.type) && !discovered.has(id)) {
+        discovered.set(id, {
+          id,
+          title: block.properties?.title ? richTextToPlain(block.properties.title) : "Untitled",
+          parentId: block.parent_id,
+          type: block.type,
+        });
+      }
+
+      // Recurse into content of container blocks
+      if (block.content?.length && (CONTAINER_TYPES.has(block.type) || PAGE_TYPES.has(block.type))) {
+        for (const childId of block.content) {
+          if (!visited.has(childId)) queue.push(childId);
+        }
+      }
+
+      // Database rows: query collection for row IDs
+      if (block.collection_id && block.view_ids?.length) {
+        const rowIds = await queryCollectionRows(page, block.collection_id, block.view_ids[0]);
+        for (const rowId of rowIds) {
+          if (!visited.has(rowId)) queue.push(rowId);
+        }
+        if (rowIds.length > 0) {
+          process.stdout.write(` [+${rowIds.length} rows]`);
+        }
+      }
+    }
+
+    process.stdout.write(`\r  ${discovered.size} pages found (${visited.size} blocks visited, ${queue.length} queued)    `);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  console.log(`\n  Total: ${discovered.size} pages`);
+  return [...discovered.values()];
 }
 
 // Load full page data: blocks + collections + discussions + comments + users
@@ -770,7 +888,8 @@ export async function backup(options: BackupOptions = {}): Promise<BackupResult>
         // Build comprehensive markdown
         const markdown = buildPageMarkdown(info.id, data, info);
 
-        const filename = `${sanitizeFilename(info.title)}.md`;
+        const shortId = cleanId.slice(0, 8);
+        const filename = `${sanitizeFilename(info.title)}_${shortId}.md`;
         writeFileSync(join(backupDir, filename), markdown);
 
         // Raw data: full recordMap
