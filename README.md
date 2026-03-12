@@ -9,6 +9,7 @@ npm install -g @rusintez/notion
 ```
 
 Or run directly with npx:
+
 ```bash
 npx @rusintez/notion --help
 ```
@@ -24,6 +25,7 @@ notion config default work
 ```
 
 Or use env var for one-off commands:
+
 ```bash
 NOTION_TOKEN=ntn_xxx notion me
 ```
@@ -140,6 +142,7 @@ notion sync-reset myworkspace   # Reset state (next sync = full)
 For workspaces where you can't create an integration (e.g. work Notion with admin restrictions), use browser-based backup. This connects to your running Chrome via CDP and navigates page by page.
 
 **Prerequisite:** Chrome running with remote debugging:
+
 ```bash
 pwc launch    # or start Chrome with --remote-debugging-port=9222
 ```
@@ -159,6 +162,7 @@ notion backup -p 9223
 ```
 
 Data is saved to `~/.local/share/notion/{workspace}/backup/{date}/`:
+
 - `{page-title}.md` — rendered markdown
 - `.raw/{page-id}.json` — raw Notion block data
 - `latest` symlink → most recent backup

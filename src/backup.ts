@@ -180,7 +180,7 @@ async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
       type: "BlocksInSpace",
       query: "",
       spaceId,
-      limit: 100,
+      limit: 1000,
       filters: {
         isDeletedOnly: false,
         excludeTemplates: true,
@@ -217,11 +217,11 @@ async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
       });
     }
 
-    if (result.results.length < 100 || pages.length >= (result.total || Infinity)) {
+    if (result.results.length === 0 || !result.cursor) {
       hasMore = false;
     } else {
       cursor = result.cursor;
-      if (!cursor) hasMore = false;
+      await new Promise((r) => setTimeout(r, 300));
     }
   }
 
@@ -276,6 +276,7 @@ async function loadPageData(page: Page, pageId: string): Promise<PageData> {
     } else {
       cursor = result.cursor;
       chunkNumber++;
+      await new Promise((r) => setTimeout(r, 200));
     }
   }
 
@@ -716,8 +717,14 @@ export async function backup(options: BackupOptions = {}): Promise<BackupResult>
   const tab = await conn.context.newPage();
 
   try {
+    tab.on("dialog", async (dialog) => {
+      console.log(`  [dialog: ${dialog.type()}] ${dialog.message()}`);
+      try { await dialog.accept(); } catch {}
+    });
+
     console.log("Navigating to Notion...");
-    await tab.goto("https://www.notion.so", { waitUntil: "networkidle" });
+    await tab.goto("https://www.notion.so", { waitUntil: "domcontentloaded" });
+    await tab.waitForTimeout(3000);
 
     console.log("Fetching workspaces...");
     const spaces = await getSpaces(tab);
@@ -796,6 +803,11 @@ export async function backup(options: BackupOptions = {}): Promise<BackupResult>
       } catch (err) {
         console.log(` ✗ ${(err as Error).message}`);
       }
+
+      // Rate limit: ~1 page/sec to avoid 429s
+      if (i < pages.length - 1) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
 
     // Export database schemas
@@ -843,12 +855,11 @@ export async function listSpacesFromBrowser(port: number = 9222): Promise<Space[
   if (!isUp) throw new Error(`Chrome not running on port ${port}`);
 
   const conn = await connectToBrowser({ port });
-  const tab = await conn.context.newPage();
+  const { page: tab } = conn;
 
-  try {
-    await tab.goto("https://www.notion.so", { waitUntil: "networkidle" });
-    return getSpaces(tab);
-  } finally {
-    await tab.close();
-  }
+  await tab.goto("https://www.notion.so", { waitUntil: "domcontentloaded", timeout: 15000 });
+  await tab.waitForTimeout(5000);
+
+  console.log(`Page URL: ${tab.url()}`);
+  return getSpaces(tab);
 }
