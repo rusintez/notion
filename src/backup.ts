@@ -271,38 +271,37 @@ async function searchPages(page: Page, spaceId: string): Promise<PageInfo[]> {
 
 async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
   const discovered = new Map<string, PageInfo>();
-  const visited = new Set<string>();
+  const seen = new Set<string>();
   const queue: string[] = [];
+
+  function enqueue(id: string) {
+    if (seen.has(id)) return;
+    seen.add(id);
+    queue.push(id);
+  }
 
   // Seed 1: space root pages
   console.log("  Fetching space root pages...");
   const rootPages = await getSpaceRootPages(page, spaceId);
-  queue.push(...rootPages);
+  for (const id of rootPages) enqueue(id);
   console.log(`  ${rootPages.length} root pages`);
 
   // Seed 2: search results (catches shared/favorited pages not in tree)
   console.log("  Running search...");
   const fromSearch = await searchPages(page, spaceId);
   for (const p of fromSearch) {
-    if (!visited.has(p.id)) {
-      discovered.set(p.id, p);
-      queue.push(p.id);
-    }
+    discovered.set(p.id, p);
+    enqueue(p.id);
   }
   console.log(`  Search returned ${fromSearch.length} pages`);
 
   // BFS: walk the page tree via lightweight syncRecordValues
   console.log("  Walking page tree...");
-  while (queue.length > 0) {
-    const batch: string[] = [];
-    while (batch.length < 50 && queue.length > 0) {
-      const id = queue.shift()!;
-      if (!visited.has(id)) {
-        visited.add(id);
-        batch.push(id);
-      }
-    }
-    if (batch.length === 0) continue;
+  let cursor = 0;
+  while (cursor < queue.length) {
+    const end = Math.min(cursor + 50, queue.length);
+    const batch = queue.slice(cursor, end);
+    cursor = end;
 
     const blocks = await syncRecords(page, "block", batch);
 
@@ -319,26 +318,20 @@ async function discoverPages(page: Page, spaceId: string): Promise<PageInfo[]> {
         });
       }
 
-      // Recurse into content of container blocks
       if (block.content?.length && (CONTAINER_TYPES.has(block.type) || PAGE_TYPES.has(block.type))) {
-        for (const childId of block.content) {
-          if (!visited.has(childId)) queue.push(childId);
-        }
+        for (const childId of block.content) enqueue(childId);
       }
 
-      // Database rows: query collection for row IDs
       if (block.collection_id && block.view_ids?.length) {
         const rowIds = await queryCollectionRows(page, block.collection_id, block.view_ids[0]);
-        for (const rowId of rowIds) {
-          if (!visited.has(rowId)) queue.push(rowId);
-        }
+        for (const rowId of rowIds) enqueue(rowId);
         if (rowIds.length > 0) {
           process.stdout.write(` [+${rowIds.length} rows]`);
         }
       }
     }
 
-    process.stdout.write(`\r  ${discovered.size} pages found (${visited.size} blocks visited, ${queue.length} queued)    `);
+    process.stdout.write(`\r  ${discovered.size} pages found (${seen.size} blocks seen, ${queue.length - cursor} queued)    `);
     await new Promise((r) => setTimeout(r, 200));
   }
 
